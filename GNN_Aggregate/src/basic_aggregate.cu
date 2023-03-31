@@ -65,18 +65,22 @@ int main() {
   size_t bytes = N * N * sizeof(int);
   size_t vector_size = N * sizeof(int);
 
-  // Host vectors 13.6ms
-  nvtxRangePush("allocate host memory for three matrices");
+  // Host vectors 
+  nvtxRangePush("allocate host memory for three matrices and one vector");
   vector<int> h_a(N * N);
   vector<int> h_b(N * N);
-  vector<int> h_i(N);
   vector<int> h_c(N * N);
+  nvtxRangePop();
+  nvtxRangePush("allocate host memory for one vector");
+  vector<int> h_i(N);
   nvtxRangePop();
 
   // Initialize matrices
   nvtxRangePush("initialize two source matrices with random numbers");
   generate(h_a.begin(), h_a.end(), []() { return rand() % 100; });
   generate(h_b.begin(), h_b.end(), []() { return rand() % 100; });
+  nvtxRangePop();
+  nvtxRangePush("initialize one vector with random numbers");
   generate(h_i.begin(), h_i.end(), []() { return rand() % 100; });
   nvtxRangePop();
 
@@ -85,14 +89,18 @@ int main() {
   int *d_a, *d_b, *d_i, *d_c;
   cudaMalloc(&d_a, bytes);
   cudaMalloc(&d_b, bytes);
-  cudaMalloc(&d_i, vector_size);
   cudaMalloc(&d_c, bytes);
+  nvtxRangePop();
+  nvtxRangePush("allocate device memory for one vector");
+  cudaMalloc(&d_i, vector_size);
   nvtxRangePop();
 
   // Copy data to the device
   nvtxRangePush("copy matrices from host to device memory");
   cudaMemcpy(d_a, h_a.data(), bytes, cudaMemcpyHostToDevice);
   cudaMemcpy(d_b, h_b.data(), bytes, cudaMemcpyHostToDevice);
+  nvtxRangePop();
+  nvtxRangePush("copy vector from host to device memory");
   cudaMemcpy(d_i, h_i.data(), vector_size, cudaMemcpyHostToDevice);
   nvtxRangePop();
 
