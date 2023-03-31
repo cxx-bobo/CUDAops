@@ -1,130 +1,144 @@
-/*!
- * \file basic_aggregate,cu
- * \brief basic version of gnn aggregate operator
- * \author Chenxi
- * \date March 29, 2023
-*/
+// This program computes matrix multiplication using shared memory tiling
+// By: Nick from CoffeeBeforeArch
 
+#include <algorithm>
+#include <cassert>
+#include <cstdlib>
+#include <functional>
 #include <iostream>
 #include <vector>
-#include <cassert>
+
 #include <nvToolsExt.h>
-#include <algorithm>
 
-__global__ void basicAggregate(
-    const int *matrix_W,
-    const int *matrix_H,
-    const int *vector_b,
-    int *matrix_HK,
-    int N){
-    //check kernel shape
-    assert(blockDim.x == blockDim.y);
-    assert(gridDim.x == gridDim.y);
+using std::cout;
+using std::generate;
+using std::vector;
 
-    //Compute each thread's global row and colum index
-    int global_row = blockIdx.y * blockDim.y + threadIdx.y;
-    int global_col = blockIdx.x * blockDim.x + threadIdx.x;
+// Pull out matrix and shared memory tile size 
+const int N = 1 << 10;
+const int SHMEM_SIZE = 1 << 10;
 
-    //Initialize destination element
-    int dest_index = global_row * N +global_col;
-    matrix_HK[dest_index] = 0;
+__global__ void tiledMatrixMul(const int *a, const int *b, int *c) {
+  // Compute each thread's global row and column index
+  int row = blockIdx.y * blockDim.y + threadIdx.y;
+  int col = blockIdx.x * blockDim.x + threadIdx.x;
 
-    //Compute W * H(k)
-    for (int k = 0; k < N; k++){
-        //Accumulate partial results for a single element
-        matrix_HK[dest_index] += matrix_W[global_row * N + k] * matrix_H[k * N + global_col];
+  // Statically allocated shared memory
+  __shared__ int s_a[SHMEM_SIZE];
+  __shared__ int s_b[SHMEM_SIZE];
+
+  // Accumulate in temporary variable
+  int tmp = 0;
+
+  // Sweep tile across matrix
+  for (int i = 0; i < N; i += blockDim.x) {
+    // Load in elements for this tile
+    s_a[threadIdx.y * blockDim.x + threadIdx.x] = a[row * N + i + threadIdx.x];
+    s_b[threadIdx.y * blockDim.x + threadIdx.x] =
+        b[i * N + threadIdx.y * N + col];
+
+    // Wait for both tiles to be loaded in before doing computation
+    __syncthreads();
+
+    // Do matrix multiplication on the small matrix
+    for (int j = 0; j < blockDim.x; j++) {
+      tmp +=
+          s_a[threadIdx.y * blockDim.x + j] * s_b[j * blockDim.x + threadIdx.x];
     }
-    //Compute W * H(k) + d
-    //matrix_HK[dest_index] += vector_b[global_row];
+
+    // Wait for all threads to finish using current tiles before loading in new
+    // ones
+    __syncthreads();
+  }
+
+  // Write back results
+  c[row * N + col] = tmp;
 }
 
-//Check result on cpu
-void verify_result(
-    std::vector<int> &matrix_W,
-    std::vector<int> &matrix_H,
-    std::vector<int> &vector_b,
-    std::vector<int> &matrix_HK,
-    int N){
-    //For every row
-    for(int i = 0; i < N; i++){
-        //For every column
-        for(int j = 0; j < N; j++){
-            int tmp = 0;
-            //Accumulate partial results for a single element
-            for(int k = 0; k < N; k++){
-                tmp += matrix_W[i * N + k] * matrix_H[k * N + j];
-            }
-            //tmp += vector_b[i];
-            //Check
-            assert(tmp == matrix_HK[i * N + j]);
-        }
+// Check result on the CPU
+void verify_result(vector<int> &a, vector<int> &b, vector<int> &c) {
+  // For every row...
+  for (int i = 0; i < N; i++) {
+    // For every column...
+    for (int j = 0; j < N; j++) {
+      // For every element in the row-column pair
+      int tmp = 0;
+      for (int k = 0; k < N; k++) {
+        // Accumulate the partial results
+        tmp += a[i * N + k] * b[k * N + j];
+      }
+
+      // Check against the CPU result
+      assert(tmp == c[i * N + j]);
     }
+  }
 }
 
-int main(){
-    //Matrix size of 1024 x 1024
-    constexpr int N = 1 << 10;
-    constexpr int matrix_size = N*N*sizeof(int);
-    constexpr int vector_size = N*sizeof(int);
+int main() {
+  // Size (in bytes) of matrix
+  size_t bytes = N * N * sizeof(int);
 
-    //Create matrices in host memory
-    std::vector<int> h_matrix_W(N*N);
-    std::vector<int> h_matrix_H(N*N);
-    std::vector<int> h_vector_b(N);
-    std::vector<int> h_matrix_Hk(N*N);
+  // Host vectors
+  nvtxRangePush("allocate host memory for three matrices");
+  vector<int> h_a(N * N);
+  vector<int> h_b(N * N);
+  vector<int> h_c(N * N);
+  nvtxRangePop();
 
-    //Initialize matrices
-    std::generate(h_matrix_W.begin(), h_matrix_W.end(), []() { return rand() % 100; });
-    std::generate(h_matrix_H.begin(), h_matrix_H.end(), []() { return rand() % 100; });
-    std::generate(h_vector_b.begin(), h_vector_b.end(), []() { return rand() % 100; });
+  // Initialize matrices
+  nvtxRangePush("initialize two source matrices with random numbers");
+  generate(h_a.begin(), h_a.end(), []() { return rand() % 100; });
+  generate(h_b.begin(), h_b.end(), []() { return rand() % 100; });
+  nvtxRangePop();
 
-    //Allocate device memory
-    int *d_matrix_W, *d_matrix_H, *d_vector_b, *d_matrix_HK;
-    cudaMalloc(&d_matrix_W, matrix_size);
-    cudaMalloc(&d_matrix_H, matrix_size);
-    cudaMalloc(&d_vector_b, vector_size);
-    cudaMalloc(&d_matrix_HK, matrix_size);
+  // Allocate device memory
+  nvtxRangePush("allocate device memory for three matrices");
+  int *d_a, *d_b, *d_c;
+  cudaMalloc(&d_a, bytes);
+  cudaMalloc(&d_b, bytes);
+  cudaMalloc(&d_c, bytes);
+  nvtxRangePop();
 
-    //Copy data from host memory to device memory
-    cudaMemcpy(d_matrix_W, h_matrix_W.data(), matrix_size, cudaMemcpyHostToDevice);
-    cudaMemcpy(d_matrix_H, h_matrix_H.data(), matrix_size, cudaMemcpyHostToDevice);
-    cudaMemcpy(d_vector_b, h_vector_b.data(), vector_size, cudaMemcpyHostToDevice);
-    //cudaMemcpy(d_matrix_HK, h_matrix_Hk.data(), matrix_size, cudaMemcpyHostToDevice);
+  // Copy data to the device
+  nvtxRangePush("copy matrices from host to device memory");
+  cudaMemcpy(d_a, h_a.data(), bytes, cudaMemcpyHostToDevice);
+  cudaMemcpy(d_b, h_b.data(), bytes, cudaMemcpyHostToDevice);
+  nvtxRangePop();
 
-    //Initialize kernel configuration
-    //Number of threads per block (one dimension)
-    int NUM_THREADS_PER_BLOCK = 32;
-    
-    //Number of blocks per grid (onde dimension)
-    int NUM_BLOCKS_PER_GRID = N % NUM_THREADS_PER_BLOCK ?
-                              N / NUM_THREADS_PER_BLOCK :
-                              N / NUM_THREADS_PER_BLOCK + 1;
-    
-    //Use dim3 structure of block and grid dimensions
-    dim3 threads(NUM_THREADS_PER_BLOCK, NUM_THREADS_PER_BLOCK);
-    dim3 blocks(NUM_BLOCKS_PER_GRID, NUM_BLOCKS_PER_GRID);
+  // Threads per CTA dimension
+  int THREADS = 32;
 
-    //Launch kernel
-    //std::cout << "Launch Kernel: " << threads << " threads per block, " << blocks << " blocks in the grid" << std::endl;
-    basicAggregate<<<blocks, threads>>>(d_matrix_W, d_matrix_H, d_vector_b, d_matrix_HK, N);
+  // Blocks per grid dimension (assumes THREADS divides N evenly)
+  int BLOCKS = N / THREADS;
 
-    //cudaDeviceSynchronize();
+  // Use dim3 structs for block  and grid dimensions
+  dim3 threads(THREADS, THREADS);
+  dim3 blocks(BLOCKS, BLOCKS);
 
-    //Copy result back to host memory
-    cudaMemcpy(h_matrix_Hk.data(), d_matrix_HK, matrix_size, cudaMemcpyDeviceToHost);
+  // Launch kernel
+  std::cout << "Launch Kernel: " << THREADS << " threads per block, " << BLOCKS << " blocks in the grid" << std::endl;
+  nvtxRangePush("start kernel");
+  tiledMatrixMul<<<blocks, threads>>>(d_a, d_b, d_c);
+  nvtxRangePop();
 
-    //Verify result
-    verify_result(h_matrix_W, h_matrix_H, h_vector_b, h_matrix_Hk, N);
+  // Copy back to the host
+  nvtxRangePush("copy matrix from device to host memory");
+  cudaMemcpy(h_c.data(), d_c, bytes, cudaMemcpyDeviceToHost);
+  nvtxRangePop();
 
-    //Free memory on device
-    cudaFree(d_matrix_W);
-    cudaFree(d_matrix_H);
-    cudaFree(d_vector_b);
-    cudaFree(d_matrix_HK);
+  // Check result
+  nvtxRangePush("verify result");
+  verify_result(h_a, h_b, h_c);
+  nvtxRangePop();
 
-    std::cout<< "Get correct basic_aggregate result" << std::endl;
+  cout << "COMPLETED SUCCESSFULLY\n";
 
-    return 0;
+  // Free memory on device
+  nvtxRangePush("free device memory");
+  cudaFree(d_a);
+  cudaFree(d_b);
+  cudaFree(d_c);
+  nvtxRangePop();
 
-
+  return 0;
 }
