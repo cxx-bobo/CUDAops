@@ -18,7 +18,11 @@ using std::vector;
 const int N = 1 << 10;
 const int SHMEM_SIZE = 1 << 10;
 
-__global__ void tiledMatrixMul(const int *a, const int *b, int *c) {
+__global__ void tiledMatrixMul(
+    const int *a, 
+    const int *b, 
+    const int *vector_i,
+    int *c) {
   // Compute each thread's global row and column index
   int row = blockIdx.y * blockDim.y + threadIdx.y;
   int col = blockIdx.x * blockDim.x + threadIdx.x;
@@ -34,8 +38,7 @@ __global__ void tiledMatrixMul(const int *a, const int *b, int *c) {
   for (int i = 0; i < N; i += blockDim.x) {
     // Load in elements for this tile
     s_a[threadIdx.y * blockDim.x + threadIdx.x] = a[row * N + i + threadIdx.x];
-    s_b[threadIdx.y * blockDim.x + threadIdx.x] =
-        b[i * N + threadIdx.y * N + col];
+    s_b[threadIdx.y * blockDim.x + threadIdx.x] = b[i * N + threadIdx.y * N + col];
 
     // Wait for both tiles to be loaded in before doing computation
     __syncthreads();
@@ -45,18 +48,23 @@ __global__ void tiledMatrixMul(const int *a, const int *b, int *c) {
       tmp +=
           s_a[threadIdx.y * blockDim.x + j] * s_b[j * blockDim.x + threadIdx.x];
     }
-
+    
     // Wait for all threads to finish using current tiles before loading in new
     // ones
     __syncthreads();
   }
 
   // Write back results
+  tmp += vector_i[row];
   c[row * N + col] = tmp;
 }
 
 // Check result on the CPU
-void verify_result(vector<int> &a, vector<int> &b, vector<int> &c) {
+void verify_result(
+  vector<int> &a, 
+  vector<int> &b, 
+  vector<int> &vector_i,
+  vector<int> &c) {
   // For every row...
   for (int i = 0; i < N; i++) {
     // For every column...
@@ -67,7 +75,7 @@ void verify_result(vector<int> &a, vector<int> &b, vector<int> &c) {
         // Accumulate the partial results
         tmp += a[i * N + k] * b[k * N + j];
       }
-
+      tmp += vector_i[i];
       // Check against the CPU result
       assert(tmp == c[i * N + j]);
     }
@@ -77,6 +85,7 @@ void verify_result(vector<int> &a, vector<int> &b, vector<int> &c) {
 int main() {
   // Size (in bytes) of matrix
   size_t bytes = N * N * sizeof(int);
+  size_t vector_size = N * sizeof(int);
 
   // Host vectors
   nvtxRangePush("allocate host memory for three matrices");
@@ -84,25 +93,37 @@ int main() {
   vector<int> h_b(N * N);
   vector<int> h_c(N * N);
   nvtxRangePop();
+  nvtxRangePush("allocate host memory for one vector");
+  vector<int> h_i(N);
+  nvtxRangePop();
 
   // Initialize matrices
   nvtxRangePush("initialize two source matrices with random numbers");
   generate(h_a.begin(), h_a.end(), []() { return rand() % 100; });
   generate(h_b.begin(), h_b.end(), []() { return rand() % 100; });
   nvtxRangePop();
+  nvtxRangePush("initialize source vector with random numbers");
+  generate(h_i.begin(), h_i.end(), []() { return rand() % 100; });
+  nvtxRangePop();
 
   // Allocate device memory
   nvtxRangePush("allocate device memory for three matrices");
-  int *d_a, *d_b, *d_c;
+  int *d_a, *d_b, *d_i, *d_c;
   cudaMalloc(&d_a, bytes);
   cudaMalloc(&d_b, bytes);
   cudaMalloc(&d_c, bytes);
+  nvtxRangePop();
+  nvtxRangePush("allocate device memory for one vector");
+  cudaMalloc(&d_i, vector_size);
   nvtxRangePop();
 
   // Copy data to the device
   nvtxRangePush("copy matrices from host to device memory");
   cudaMemcpy(d_a, h_a.data(), bytes, cudaMemcpyHostToDevice);
   cudaMemcpy(d_b, h_b.data(), bytes, cudaMemcpyHostToDevice);
+  nvtxRangePop();
+  nvtxRangePush("copy vector from host to device memory");
+  cudaMemcpy(d_i, h_i.data(), vector_size, cudaMemcpyHostToDevice);
   nvtxRangePop();
 
   // Threads per CTA dimension
@@ -118,7 +139,7 @@ int main() {
   // Launch kernel
   std::cout << "Launch Kernel: " << THREADS << " threads per block, " << BLOCKS << " blocks in the grid" << std::endl;
   nvtxRangePush("start kernel");
-  tiledMatrixMul<<<blocks, threads>>>(d_a, d_b, d_c);
+  tiledMatrixMul<<<blocks, threads>>>(d_a, d_b, d_i, d_c);
   nvtxRangePop();
 
   // Copy back to the host
@@ -128,7 +149,7 @@ int main() {
 
   // Check result
   nvtxRangePush("verify result");
-  verify_result(h_a, h_b, h_c);
+  verify_result(h_a, h_b, h_i, h_c);
   nvtxRangePop();
 
   cout << "COMPLETED SUCCESSFULLY\n";
@@ -138,6 +159,7 @@ int main() {
   cudaFree(d_a);
   cudaFree(d_b);
   cudaFree(d_c);
+  cudaFree(d_i);
   nvtxRangePop();
 
   return 0;

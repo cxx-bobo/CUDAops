@@ -17,6 +17,7 @@ set(CMAKE_CXX_STANDARD 11)
 # 检索出源文件与头文件
 file(GLOB_RECURSE TEST_HEAD ${CMAKE_CURRENT_LIST_DIR}/src/.h ${CMAKE_CURRENT_LIST_DIR}/src/.cuh)
 file(GLOB TEST_SRC1 ${CMAKE_CURRENT_LIST_DIR}/src/basic_aggregate.cu )
+file(GLOB TEST_SRC2 ${CMAKE_CURRENT_LIST_DIR}/src/tiled_aggregate.cu )
 
 # 设置CUAD编译配置
 set(CUDA_NVCC_FLAGS -gencode arch=compute_80,code=sm_80;-G;-g)
@@ -24,10 +25,12 @@ set(CUDA_NVCC_FLAGS -gencode arch=compute_80,code=sm_80;-G;-g)
 
 # 生成可执行文件
 cuda_add_executable(basic_aggregation ${TEST_SRC1} ${TEST_HEAD} OPTIONS ${GENCODE})
+cuda_add_executable(tiled_aggregation ${TEST_SRC2} ${TEST_HEAD} OPTIONS ${GENCODE})
 
 # >>> global configuration
 set(PROFILING_TARGETS 
   basic_aggregation
+  tiled_aggregation
 )
 foreach( profiling_target ${PROFILING_TARGETS} )
   target_link_libraries(${profiling_target} nvToolsExt -lcublas -lcurand)
