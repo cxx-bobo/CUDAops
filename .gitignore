@@ -1,0 +1,4 @@
+.vscode/
+env/
+GNN_Aggregate/.vscode/
+GNN_Aggregate/build/
