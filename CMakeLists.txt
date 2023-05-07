@@ -1,31 +1,54 @@
-# CMake version
+# cmake version
 cmake_minimum_required(VERSION 3.16.3)
 
-#project info
-project(GNN_Aggregate LANGUAGES CXX CUDA)
+# project info
+project(CUDAops LANGUAGES CXX CUDA)
 
-#设置编译后的程序存放位置
-set(EXECUTABLE_OUTPUT_PATH ${PROJECT_SOURCE_DIR}/bin)
+# set executable output path
+set(PATH_EXECUTABLE bin)
+execute_process( COMMAND ${CMAKE_COMMAND} -E make_directory ../${PATH_EXECUTABLE})
+SET(EXECUTABLE_OUTPUT_PATH ../${PATH_EXECUTABLE})
 
-# 找到CUDA路径并导入头文件
-find_package(CUDA REQUIRED)
-include_directories(${CUDA_INCLUDE_DIRS})
+# set library output path
+set(PATH_LIBRARY lib)
+execute_process( COMMAND ${CMAKE_COMMAND} -E make_directory ../${PATH_LIBRARY})
+SET(LIBRARY_OUTPUT_PATH ../${PATH_LIBRARY})
 
-# 设置C++版本
-set(CMAKE_CXX_STANDARD 11)
+# find CUDA Toolkit Extension library
+set(CUDA_TOOLKIT_ROOT_DIR /usr/local/cuda-11.7)
+find_library(CUDA_NVTX_LIBRARY
+  NAMES nvToolsExt nvTools nvtoolsext nvtools nvtx NVTX
+  PATHS "${CUDA_CUDART_LIBRARY_DIR}" "${CUDA_TOOLKIT_ROOT_DIR}" ENV LD_LIBRARY_PATH
+  PATH_SUFFIXES "lib64" "common/lib64" "common/lib" "lib"
+  DOC "Location of the CUDA Toolkit Extension (NVTX) library"
+  NO_DEFAULT_PATH
+)
 
-# 检索出源文件与头文件
-file(GLOB_RECURSE TEST_HEAD ${CMAKE_CURRENT_LIST_DIR}/src/.h ${CMAKE_CURRENT_LIST_DIR}/src/.cuh)
-file(GLOB TEST_SRC1 ${CMAKE_CURRENT_LIST_DIR}/src/basic_aggregate.cu )
-file(GLOB TEST_SRC2 ${CMAKE_CURRENT_LIST_DIR}/src/tiled_aggregate.cu )
+# ====================== OPERATOR LIBRARY ======================
+file(GLOB_RECURSE SRC_OPERATORS "kernels/*.cu" "kernels/*.cpp" "kernels/**/*.cu" "kernels/**/*.cpp")
+add_library(_operators ${SRC_OPERATORS})
+target_compile_features(_operators PUBLIC cxx_std_11)
+target_include_directories(_operators PUBLIC include)
+target_compile_options(
+  _operators PUBLIC 
+  $<$<COMPILE_LANGUAGE:CUDA>:-gencode arch=compute_80,code=sm_80>
+)
 
-# 设置CUAD编译配置
-set(CUDA_NVCC_FLAGS -gencode arch=compute_80,code=sm_80;-G;-g)
+# Don't do following operation!
+# set_target_properties( 
+#   _operators                   
+#   PROPERTIES CUDA_SEPARABLE_COMPILATION ON
+# )
 
+target_include_directories(_operators PUBLIC include)
 
-# 生成可执行文件
-cuda_add_executable(basic_aggregation ${TEST_SRC1} ${TEST_HEAD} OPTIONS ${GENCODE})
-cuda_add_executable(tiled_aggregation ${TEST_SRC2} ${TEST_HEAD} OPTIONS ${GENCODE})
+# ====================== src PROGRAM ======================
+# >>> GNN aggregation
+SET(SRC_MATRIX_MULTIPLICATION src/GNNaggregation)
+file(GLOB_RECURSE SRC_MATRIX_MULTIPLICATION_CPP ${SRC_MATRIX_MULTIPLICATION}/*.cpp)
+add_executable(basic_aggregation ${SRC_MATRIX_MULTIPLICATION}/basic_aggregation.cu ${SRC_MATRIX_MULTIPLICATION_CPP})
+add_executable(tiled_aggregation ${SRC_MATRIX_MULTIPLICATION}/tiled_aggregation.cu ${SRC_MATRIX_MULTIPLICATION_CPP})
+
 
 # >>> global configuration
 set(PROFILING_TARGETS 
@@ -33,11 +56,12 @@ set(PROFILING_TARGETS
   tiled_aggregation
 )
 foreach( profiling_target ${PROFILING_TARGETS} )
-  target_link_libraries(${profiling_target} nvToolsExt -lcublas -lcurand)
+  target_link_libraries(${profiling_target} _operators nvToolsExt -lcublas -lcurand)
   target_compile_features(${profiling_target} PUBLIC cxx_std_11)
   target_include_directories(${profiling_target} PUBLIC include)
   target_compile_options(
     ${profiling_target} PRIVATE 
+    # 编译器前后端: arch -> IR, code -> 后端 binary (针对硬件的二进制，小版本号兼容 sm_80 -> sm_86)
     $<$<COMPILE_LANGUAGE:CUDA>:-gencode arch=compute_80,code=sm_80>
   )
 endforeach( profiling_target ${PROFILING_TARGETS} )

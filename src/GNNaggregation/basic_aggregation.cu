@@ -1,33 +1,13 @@
-// This program computes a simple version of matrix multiplication
-// By: Nick from CoffeeBeforeArch
-
 #include <algorithm>
 #include <cassert>
 #include <cstdlib>
 #include <functional>
 #include <iostream>
 #include <vector>
+#include <GNNaggregation.cuh>
 
 #include <nvToolsExt.h>
 
-__global__ void basicMatrixMul(
-    const int *a, 
-    const int *b, 
-    const int *vector_i,
-    int *c, 
-    int N) {
-  // Compute each thread's global row and column index
-  int row = blockIdx.y * blockDim.y + threadIdx.y;
-  int col = blockIdx.x * blockDim.x + threadIdx.x;
-
-  // Iterate over row, and down column
-  c[row * N + col] = 0;
-  for (int k = 0; k < N; k++) {
-    // Accumulate results for a single element
-    c[row * N + col] += a[row * N + k] * b[k * N + col];  
-  }
-  c[row * N + col] += vector_i[row];
-}
 
 // Check result on the CPU
 void verify_result(
