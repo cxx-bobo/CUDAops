@@ -9,7 +9,7 @@
 #include <vector>
 
 #include <nvToolsExt.h>
-
+#include <cstdlib>
 
 __global__ void tiledMatrixMul(
     const int *matrix_W, 
@@ -26,33 +26,39 @@ __global__ void tiledMatrixMul(
   extern __shared__ int tile[];
   int* tile_W = tile;
   int* tile_H = tile+tile_size*tile_size;
-
-  // Accumulate in temporary variable
   int tmp = 0;
 
   // Sweep tile across matrix
   for (int i = 0; i < N; i += blockDim.x) {
-    // Load in elements for this tile
-    tile_W[threadIdx.y * blockDim.x + threadIdx.x] = matrix_W[row * N + i + threadIdx.x];
-    tile_H[threadIdx.y * blockDim.x + threadIdx.x] = matrix_H[i * N + threadIdx.y * N + col];
+    
+    int index_W = row * N + i + threadIdx.x;
+    if(index_W < N*N){
+      // Load in elements for this tile
+      tile_W[threadIdx.y * blockDim.x + threadIdx.x] = matrix_W[index_W];
+    }else{
+      tile_W[threadIdx.y * blockDim.x + threadIdx.x] = 0;
+    }
 
-    // Wait for both tiles to be loaded in before doing computation
+    int index_H = i * N + threadIdx.y * N + col;
+    if(index_H < N*N){
+      // Load in elements for this tile
+      tile_H[threadIdx.y * blockDim.x + threadIdx.x] = matrix_H[index_H];
+    }else{
+      tile_H[threadIdx.y * blockDim.x + threadIdx.x] = 0;
+    }
     __syncthreads();
 
     // Do matrix multiplication on the small matrix
     for (int j = 0; j < blockDim.x; j++) {
-      tmp +=
-          tile_W[threadIdx.y * blockDim.x + j] * tile_H[j * blockDim.x + threadIdx.x];
+      tmp += tile_W[threadIdx.y * blockDim.x + j] * tile_H[j * blockDim.x + threadIdx.x];
     }
-    
-    // Wait for all threads to finish using current tiles before loading in new
-    // ones
     __syncthreads();
-  }
+    }
 
   // Write back results
-  tmp += vector_b[row];
-  c[row * N + col] = tmp;
+  if(row < N && col < N){
+    c[row * N + col] = vector_b[row] +tmp;
+  }
 }
 
 // Check result on the CPU
@@ -81,8 +87,9 @@ void verify_result(
 
 int main() {
 
-  // Matrix size of 1024 x 1024;
-  constexpr int N = 1 << 10;
+  // Matrix size 
+  constexpr int N = 3; //N=32*k（k=1,2,3...）
+  std::cout << "N=" << N << std::endl;
 
   // Size (in bytes) of matrix
   size_t matrix_size = N * N * sizeof(int);
@@ -121,22 +128,23 @@ int main() {
   nvtxRangePop();
 
   // Threads per CTA dimension
-  int THREADS = 32;
+  int THREADS_PER_BLOCK = 32;
 
   // Blocks per grid dimension (assumes THREADS divides N evenly)
-  int BLOCKS = N / THREADS;
+  int BLOCKS_NUM = N % THREADS_PER_BLOCK  == 0 ? N / THREADS_PER_BLOCK  : N / THREADS_PER_BLOCK  + 1;
 
   // Use dim3 structs for block  and grid dimensions
-  dim3 threads(THREADS, THREADS);
-  dim3 blocks(BLOCKS, BLOCKS);
+  dim3 block(THREADS_PER_BLOCK , THREADS_PER_BLOCK);
+  dim3 grip(BLOCKS_NUM, BLOCKS_NUM);
 
   // obtain shared memory size for each thread block(tile_A+tile_B,所以乘2)
-  int shared_memory_size = 2*THREADS*THREADS*sizeof(int);
+  int shared_memory_size = 2*THREADS_PER_BLOCK *THREADS_PER_BLOCK *sizeof(int);
 
   // Launch kernel
-  std::cout << "Launch Kernel: " << THREADS << " threads per block, " << BLOCKS << " blocks in the grid" << std::endl;
+  std::cout << block.x <<std::endl;
+  std::cout << "Launch Kernel: " << THREADS_PER_BLOCK  << " threads per block(one dimension), " << BLOCKS_NUM << " blocks in the grid(one dimension)" << std::endl;
   nvtxRangePush("start kernel");
-  tiledMatrixMul<<<blocks, threads, shared_memory_size>>>(d_matrix_W, d_matrix_H, d_vector_b, THREADS, d_matrix_HK, N);
+  tiledMatrixMul<<<grip, block, shared_memory_size>>>(d_matrix_W, d_matrix_H, d_vector_b, THREADS_PER_BLOCK, d_matrix_HK, N);
   nvtxRangePop();
 
   // Copy back to the host
