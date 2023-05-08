@@ -1,5 +1,5 @@
-#ifndef _MATRIX_MUL_H_
-#define _MATRIX_MUL_H_
+#ifndef _GNN_AGGREGATION_H_
+#define _GNN_AGGREGATION_H_
 
 #include<stdint.h>
 

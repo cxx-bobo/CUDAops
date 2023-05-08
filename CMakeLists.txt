@@ -44,16 +44,21 @@ target_include_directories(_operators PUBLIC include)
 
 # ====================== src PROGRAM ======================
 # >>> GNN aggregation
-SET(SRC_MATRIX_MULTIPLICATION src/GNNaggregation)
-file(GLOB_RECURSE SRC_MATRIX_MULTIPLICATION_CPP ${SRC_MATRIX_MULTIPLICATION}/*.cpp)
-add_executable(basic_aggregation ${SRC_MATRIX_MULTIPLICATION}/basic_aggregation.cu ${SRC_MATRIX_MULTIPLICATION_CPP})
-add_executable(tiled_aggregation ${SRC_MATRIX_MULTIPLICATION}/tiled_aggregation.cu ${SRC_MATRIX_MULTIPLICATION_CPP})
+SET(SRC_GNN_AGGREGATION src/GNNaggregation)
+file(GLOB_RECURSE SRC_GNN_AGGREGATION_CPP ${SRC_GNN_AGGREGATION}/*.cpp)
+add_executable(basic_aggregation ${SRC_GNN_AGGREGATION}/basic_aggregation.cu ${SRC_GNN_AGGREGATION_CPP})
+add_executable(tiled_aggregation ${SRC_GNN_AGGREGATION}/tiled_aggregation.cu ${SRC_GNN_AGGREGATION_CPP})
+# >>> CSR SpMV
+SET(SRC_CSR_SPMV src/SpMV)
+file(GLOB_RECURSE SRC_CSR_SPMV_CPP ${SRC_CSR_SPMV}/*.cpp)
+add_executable(csr_spmv_scalar ${SRC_CSR_SPMV}/csr_spmv_scalar.cu ${SRC_CSR_SPMV_CPP})
 
 
 # >>> global configuration
 set(PROFILING_TARGETS 
   basic_aggregation
   tiled_aggregation
+  csr_spmv_scalar
 )
 foreach( profiling_target ${PROFILING_TARGETS} )
   target_link_libraries(${profiling_target} _operators nvToolsExt -lcublas -lcurand)
