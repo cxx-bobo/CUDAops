@@ -9,45 +9,58 @@
 #include <nvToolsExt.h>
 
 void generateSparseMatrix(
-    const int numRows, 
-    const int numCols, 
+    const uint64_t numRows, 
+    const uint64_t numCols, 
     double density,
-    std::vector<float>& values, 
-    std::vector<int>& colIndices, 
-    std::vector<int>& rowOffsets
+    std::vector<float> &values, 
+    std::vector<uint64_t> &colIndices, 
+    std::vector<uint64_t> &rowOffsets
+);
+
+void verifySpMVresult(
+    const uint64_t numRows, 
+    const uint64_t numCols, 
+    std::vector<float> &values, 
+    std::vector<uint64_t> &col_idx, 
+    std::vector<uint64_t> &row_ptr,
+    std::vector<float> &x,
+    std::vector<float> &y
 );
 
 int main() {
   // initial constants
-  constexpr int numRows = 10; 
-  constexpr int sizeRow = 6;
+  constexpr uint64_t numRows = 5; 
+  constexpr uint64_t sizeRow = 3;
   const double density = 0.3;
   
-  size_t size_x = numRows * sizeof(float);
-  size_t size_y = sizeRow * sizeof(float);
+  size_t size_x = sizeRow * sizeof(float);
+  size_t size_y = numRows * sizeof(float);
   
   // Host vectors 
-  nvtxRangePush("allocate host memory for vectors");
   std::vector<float> values; 
-  std::vector<int> col_idx; 
-  std::vector<int> row_ptr;
-  std::vector<float> vector_x(size_x);
-  std::vector<float> result_y(size_y);
+  std::vector<uint64_t> col_idx; 
+  std::vector<uint64_t> row_ptr;
+  std::vector<float> vector_x;
+  vector_x.reserve(sizeRow);
+  std::vector<float> result_y;
+  result_y.reserve(numRows);
   nvtxRangePop();
 
   // Initialize csr and vector_x
   nvtxRangePush("initialize source csr with random numbers");
   generateSparseMatrix(numRows, sizeRow, density, values, col_idx, row_ptr);
-  std::generate(vector_x.begin(), vector_x.end(), []() { return rand() % 100; });
+  for (int i=0; i<sizeRow; i++){
+        vector_x.push_back(static_cast<float>(rand() % 100));
+  };
   nvtxRangePop();
 
   // Allocate device memory
   nvtxRangePush("allocate device memory for three matrices and one vector");
   float *d_values, *d_x, *d_y;
-  int *d_col_idx, *d_row_ptr;
+  uint64_t *d_col_idx, *d_row_ptr;
   cudaMalloc(&d_values, sizeof(float)*values.size());
-  cudaMalloc(&d_col_idx, sizeof(int)*col_idx.size());
-  cudaMalloc(&d_row_ptr, sizeof(int)*row_ptr.size());
+  cudaMalloc(&d_col_idx, sizeof(uint64_t)*col_idx.size());
+  cudaMalloc(&d_row_ptr, sizeof(uint64_t)*row_ptr.size());
   cudaMalloc(&d_x, size_x);
   cudaMalloc(&d_y, size_y);
   nvtxRangePop();
@@ -55,8 +68,8 @@ int main() {
   // Copy data to the device
   nvtxRangePush("copy data from host to device memory");
   cudaMemcpy(d_values, values.data(), sizeof(float)*values.size(), cudaMemcpyHostToDevice);
-  cudaMemcpy(d_col_idx, col_idx.data(), sizeof(int)*col_idx.size(), cudaMemcpyHostToDevice);
-  cudaMemcpy(d_row_ptr, row_ptr.data(), sizeof(int)*row_ptr.size(), cudaMemcpyHostToDevice);
+  cudaMemcpy(d_col_idx, col_idx.data(), sizeof(uint64_t)*col_idx.size(), cudaMemcpyHostToDevice);
+  cudaMemcpy(d_row_ptr, row_ptr.data(), sizeof(uint64_t)*row_ptr.size(), cudaMemcpyHostToDevice);
   cudaMemcpy(d_x, vector_x.data(), size_x, cudaMemcpyHostToDevice);
   nvtxRangePop();
 
@@ -81,10 +94,10 @@ int main() {
   cudaMemcpy(result_y.data(), d_y, size_y, cudaMemcpyDeviceToHost);
   nvtxRangePop();
 
-  // // Check result
-  // nvtxRangePush("copy matrix from device to host memory");
-  // verify_result(h_a, h_b, h_i, h_c, N);
-  // nvtxRangePop();
+  // Check result
+  nvtxRangePush("copy matrix from device to host memory");
+  verifySpMVresult(numRows, sizeRow, values, col_idx, row_ptr, vector_x, result_y);
+  nvtxRangePop();
 
   // Free memory on device
   nvtxRangePush("free device memory");
@@ -95,7 +108,7 @@ int main() {
   cudaFree(d_y);
   nvtxRangePop();
 
-  std::cout << "matrix COMPLETED SUCCESSFULLY\n";
+  std::cout << "csr_spmv_scalar COMPLETED SUCCESSFULLY\n";
 
   return 0;
 }

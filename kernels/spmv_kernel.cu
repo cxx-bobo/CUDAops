@@ -4,9 +4,9 @@
 #define FULL_WARP_MASK 0xffffffff
 
 __global__ void csr_spmv_scalar_kernel (
-    const int n_rows,
-    const int *col_ids,
-    const int *row_ptr,
+    const uint64_t n_rows,
+    const uint64_t *col_ids,
+    const uint64_t *row_ptr,
     const float *data,
     const float *x,
     float *y)
@@ -14,12 +14,13 @@ __global__ void csr_spmv_scalar_kernel (
     unsigned int row = blockIdx.x * blockDim.x + threadIdx.x;
     if (row < n_rows)
     {
-        const int row_start = row_ptr[row];
-        const int row_end = row_ptr[row + 1];
+        const uint64_t row_start = row_ptr[row];
+        const uint64_t row_end = row_ptr[row + 1];
         float sum = 0;
-        for (unsigned int element = row_start; element< row_end; element++)
+        for (unsigned int element = row_start; element< row_end; element++){
             sum += data[element] * x[col_ids[element]];
-            y[row] = sum;
+        }
+        y[row] = sum;
     }
 }
 
