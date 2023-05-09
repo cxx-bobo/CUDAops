@@ -73,13 +73,13 @@ void verifySpMVresult(
     std::vector<float> correct_y(numCols,0);
     std::cout << std::endl <<"correct_y = ";
     // For every row...
-    for (int i = 0; i < numRows; i++) {
+    for (uint64_t i = 0; i < numRows; i++) {
         const uint64_t row_start =row_ptr[i]; 
         const uint64_t row_end =row_ptr[i+1]; 
         float sum = 0;
         // For every column...
-        for (int j = row_start; j < row_end; j++) {    
-            sum += values[j] * x[j];
+        for (uint64_t j = row_start; j < row_end; j++) {    
+            sum += values[j] * x[col_idx[j]];
         }
         correct_y[i] = sum; 
         std::cout << sum << " ";

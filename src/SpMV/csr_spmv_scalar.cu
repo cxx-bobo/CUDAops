@@ -44,13 +44,14 @@ int main() {
   vector_x.reserve(sizeRow);
   std::vector<float> result_y;
   result_y.reserve(numRows);
-  nvtxRangePop();
+  
+  
 
   // Initialize csr and vector_x
   nvtxRangePush("initialize source csr with random numbers");
   generateSparseMatrix(numRows, sizeRow, density, values, col_idx, row_ptr);
   for (int i=0; i<sizeRow; i++){
-        vector_x.push_back(static_cast<float>(rand() % 100));
+    vector_x.push_back(static_cast<float>(rand() % 100));
   };
   nvtxRangePop();
 

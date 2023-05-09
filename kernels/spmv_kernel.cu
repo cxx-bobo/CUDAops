@@ -1,5 +1,6 @@
 #include <spmv.cuh>
 #include <cassert>
+#include <iostream>
 
 #define FULL_WARP_MASK 0xffffffff
 
@@ -11,16 +12,17 @@ __global__ void csr_spmv_scalar_kernel (
     const float *x,
     float *y)
 {
-    unsigned int row = blockIdx.x * blockDim.x + threadIdx.x;
+    uint64_t row = blockIdx.x * blockDim.x + threadIdx.x;
     if (row < n_rows)
     {
         const uint64_t row_start = row_ptr[row];
         const uint64_t row_end = row_ptr[row + 1];
         float sum = 0;
-        for (unsigned int element = row_start; element< row_end; element++){
+        for (uint64_t element = row_start; element< row_end; element++){
             sum += data[element] * x[col_ids[element]];
         }
         y[row] = sum;
+        printf("sum = %f",sum);
     }
 }
 
