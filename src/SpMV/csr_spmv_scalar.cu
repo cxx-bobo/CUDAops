@@ -88,6 +88,11 @@ int main() {
   std::cout << "Launch Kernel: " << threads_per_CTAdim << " threads per block, " << blocks_per_GRIDdim << " blocks in the grid" << std::endl;
   nvtxRangePush("start kernel");
   csr_spmv_scalar_kernel<<<GRID, BLOCK>>>(numRows, d_col_idx, d_row_ptr, d_values, d_x, d_y);
+  cudaError_t err = cudaGetLastError();
+  if (err != cudaSuccess) {
+    printf("CUDA Error: %s\n", cudaGetErrorString(err));
+    // Possibly: exit(-1) if program cannot continue....
+  } 
   nvtxRangePop();
 
   // Copy back to the host
