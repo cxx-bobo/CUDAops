@@ -29,8 +29,8 @@ void verifySpMVresult(
 
 int main() {
   // initial constants
-  constexpr uint64_t numRows = 5; 
-  constexpr uint64_t sizeRow = 3;
+  constexpr uint64_t numRows = 10; 
+  constexpr uint64_t sizeRow = 6;
   const double density = 0.3;
   
   size_t size_x = sizeRow * sizeof(float);
@@ -40,10 +40,10 @@ int main() {
   std::vector<float> values; 
   std::vector<uint64_t> col_idx; 
   std::vector<uint64_t> row_ptr;
-  std::vector<float> vector_x;
-  vector_x.reserve(sizeRow);
-  std::vector<float> result_y;
-  result_y.reserve(numRows);
+  std::vector<float> h_x;
+  h_x.reserve(sizeRow);
+  std::vector<float> h_y;
+  h_y.reserve(numRows);
   
   
 
@@ -51,7 +51,7 @@ int main() {
   nvtxRangePush("initialize source csr with random numbers");
   generateSparseMatrix(numRows, sizeRow, density, values, col_idx, row_ptr);
   for (int i=0; i<sizeRow; i++){
-    vector_x.push_back(static_cast<float>(rand() % 100));
+    h_x.push_back(static_cast<float>(rand() % 100));
   };
   nvtxRangePop();
 
@@ -71,11 +71,11 @@ int main() {
   cudaMemcpy(d_values, values.data(), sizeof(float)*values.size(), cudaMemcpyHostToDevice);
   cudaMemcpy(d_col_idx, col_idx.data(), sizeof(uint64_t)*col_idx.size(), cudaMemcpyHostToDevice);
   cudaMemcpy(d_row_ptr, row_ptr.data(), sizeof(uint64_t)*row_ptr.size(), cudaMemcpyHostToDevice);
-  cudaMemcpy(d_x, vector_x.data(), size_x, cudaMemcpyHostToDevice);
+  cudaMemcpy(d_x, h_x.data(), size_x, cudaMemcpyHostToDevice);
   nvtxRangePop();
 
   // Threads per CTA dimension
-  int threads_per_CTAdim = 32;
+  int threads_per_CTAdim = 1<<7;
 
   // Blocks per grid dimension (assumes THREADS divides N evenly)
   int blocks_per_GRIDdim = ( numRows + threads_per_CTAdim -1 ) / threads_per_CTAdim;
@@ -88,21 +88,21 @@ int main() {
   std::cout << "Launch Kernel: " << threads_per_CTAdim << " threads per block, " << blocks_per_GRIDdim << " blocks in the grid" << std::endl;
   nvtxRangePush("start kernel");
   csr_spmv_scalar_kernel<<<GRID, BLOCK>>>(numRows, d_col_idx, d_row_ptr, d_values, d_x, d_y);
-  cudaError_t err = cudaGetLastError();
-  if (err != cudaSuccess) {
-    printf("CUDA Error: %s\n", cudaGetErrorString(err));
-    // Possibly: exit(-1) if program cannot continue....
-  } 
+  // cudaError_t err = cudaGetLastError();
+  // if (err != cudaSuccess) {
+  //   printf("CUDA Error: %s\n", cudaGetErrorString(err));
+  //   // Possibly: exit(-1) if program cannot continue....
+  // } 
   nvtxRangePop();
 
   // Copy back to the host
-  nvtxRangePush("copy matrices from device to host memory");
-  cudaMemcpy(result_y.data(), d_y, size_y, cudaMemcpyDeviceToHost);
+  nvtxRangePush("copy data from device to host memory");
+  cudaMemcpy(h_y.data(), d_y, size_y, cudaMemcpyDeviceToHost);
   nvtxRangePop();
 
   // Check result
-  nvtxRangePush("copy matrix from device to host memory");
-  verifySpMVresult(numRows, sizeRow, values, col_idx, row_ptr, vector_x, result_y);
+  nvtxRangePush("veryfy result");
+  verifySpMVresult(numRows, sizeRow, values, col_idx, row_ptr, h_x, h_y);
   nvtxRangePop();
 
   // Free memory on device

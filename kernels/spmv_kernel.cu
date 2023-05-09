@@ -22,7 +22,7 @@ __global__ void csr_spmv_scalar_kernel (
             sum += data[element] * x[col_ids[element]];
         }
         y[row] = sum;
-        printf("sum = %f, row = %d",sum,row);
+        // printf("y[%d] = %f \n",row,y[row]);
     }
 }
 

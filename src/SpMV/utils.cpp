@@ -32,24 +32,24 @@ void generateSparseMatrix(
         // 更新 rowOffsets 向量
         rowOffsets.push_back(rowOffsets.back() + numNonZerosInRow);
     }
-    //print csr
-    std::cout << "row_ptr: ";
-    for (int i = 0; i < rowOffsets.size(); i++) {
-        std::cout << rowOffsets[i] << " ";
-    }
-    std::cout << std::endl;
+    // //print csr
+    // std::cout << "row_ptr: ";
+    // for (int i = 0; i < rowOffsets.size(); i++) {
+    //     std::cout << rowOffsets[i] << " ";
+    // }
+    // std::cout << std::endl;
 
-    std::cout << "col_idx: ";
-    for (int i = 0; i < colIndices.size(); i++) {
-        std::cout << colIndices[i] << " ";
-    }
-    std::cout << std::endl;
+    // std::cout << "col_idx: ";
+    // for (int i = 0; i < colIndices.size(); i++) {
+    //     std::cout << colIndices[i] << " ";
+    // }
+    // std::cout << std::endl;
 
-    std::cout << "values: ";
-    for (int i = 0; i < values.size(); i++) {
-        std::cout << values[i] << " ";
-    }
-    std::cout << std::endl;
+    // std::cout << "values: ";
+    // for (int i = 0; i < values.size(); i++) {
+    //     std::cout << values[i] << " ";
+    // }
+    // std::cout << std::endl;
 }
 
 //检查结果是否正确
@@ -62,16 +62,6 @@ void verifySpMVresult(
     std::vector<float> &x,
     std::vector<float> &y
 ){
-    std::cout << "x = ";
-    for (auto &val : x) {
-        std::cout << val << " ";
-    }
-    std::cout << std::endl << "y = ";
-    for (auto &val : y) {
-        std::cout << val << " ";
-    }
-    std::vector<float> correct_y(numCols,0);
-    std::cout << std::endl <<"correct_y = ";
     // For every row...
     for (uint64_t i = 0; i < numRows; i++) {
         const uint64_t row_start =row_ptr[i]; 
@@ -81,12 +71,6 @@ void verifySpMVresult(
         for (uint64_t j = row_start; j < row_end; j++) {    
             sum += values[j] * x[col_idx[j]];
         }
-        correct_y[i] = sum; 
-        std::cout << sum << " ";
+        assert(y[i] - sum <= 0.000001);
     }
-    // Check against the CPU result
-    // for (int i = 0; i < numCols; i++)
-    // {
-    //     assert(y[i] - correct_y[i] <= 0.000001);
-    // }
 }

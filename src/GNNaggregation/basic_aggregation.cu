@@ -94,7 +94,7 @@ int main() {
   nvtxRangePop();
 
   // Check result
-  nvtxRangePush("copy matrix from device to host memory");
+  nvtxRangePush("verify result");
   verify_result(h_a, h_b, h_i, h_c, N);
   nvtxRangePop();
 
