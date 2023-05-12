@@ -13,9 +13,9 @@ __global__ void csr_spmv_scalar_kernel (
 );
 
 __global__ void csr_spmv_vector_kernel (
-  unsigned int n_rows,
-  const unsigned int *col_ids,
-  const unsigned int *row_ptr,
+  const uint64_t n_rows,
+  const uint64_t *col_ids,
+  const uint64_t *row_ptr,
   const float *data,
   const float *x,
   float *y

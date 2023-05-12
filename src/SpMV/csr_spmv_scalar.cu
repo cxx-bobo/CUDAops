@@ -31,7 +31,7 @@ int main() {
   // initial constants
   constexpr uint64_t numRows = 1<<20; 
   constexpr uint64_t sizeRow = 1<<10;
-  const double density = 0.3;
+  const double density = 0.5;
   
   size_t size_x = sizeRow * sizeof(float);
   size_t size_y = numRows * sizeof(float);

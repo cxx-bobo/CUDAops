@@ -35,23 +35,23 @@ __device__ float warp_reduce (float val)
 }
 
 __global__ void csr_spmv_vector_kernel (
-  unsigned int n_rows,
-  const unsigned int *col_ids,
-  const unsigned int *row_ptr,
+  const uint64_t n_rows,
+  const uint64_t *col_ids,
+  const uint64_t *row_ptr,
   const float *data,
   const float *x,
   float *y)
 {
-  const unsigned int thread_id = blockIdx.x * blockDim.x + threadIdx.x;
-  const unsigned int warp_id = thread_id / 32;
-  const unsigned int lane = thread_id % 32;
-  const unsigned int row = warp_id; ///< One warp per row
+  const uint64_t thread_id = blockIdx.x * blockDim.x + threadIdx.x;
+  const uint64_t warp_id = thread_id / 32;
+  const uint64_t lane = thread_id % 32;
+  const uint64_t row = warp_id; ///< One warp per row
   float sum =0;
   if (row < n_rows)
  {
-   const unsigned int row_start = row_ptr[row];
-   const unsigned int row_end = row_ptr[row + 1];
-   for (unsigned int element = row_start + lane; element < row_end; element += 32)
+   const uint64_t row_start = row_ptr[row];
+   const uint64_t row_end = row_ptr[row + 1];
+   for (uint64_t element = row_start + lane; element < row_end; element += 32)
        sum += data[element] * x[col_ids[element]];
   }
  sum = warp_reduce (sum);

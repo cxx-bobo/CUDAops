@@ -6,8 +6,10 @@ project(CUDAops LANGUAGES CXX CUDA)
 
 # set executable output path
 set(PATH_EXECUTABLE bin)
-execute_process( COMMAND ${CMAKE_COMMAND} -E make_directory ../${PATH_EXECUTABLE})
-SET(EXECUTABLE_OUTPUT_PATH ../${PATH_EXECUTABLE})
+execute_process(COMMAND ${CMAKE_COMMAND} -E make_directory ../${PATH_EXECUTABLE}/gnn_aggregation)
+execute_process(COMMAND ${CMAKE_COMMAND} -E make_directory ../${PATH_EXECUTABLE}/csr_spmv)
+SET(EXECUTABLE_OUTPUT_PATH ${PATH_EXECUTABLE})
+
 
 # set library output path
 set(PATH_LIBRARY lib)
@@ -52,13 +54,20 @@ add_executable(tiled_aggregation ${SRC_GNN_AGGREGATION}/tiled_aggregation.cu ${S
 SET(SRC_CSR_SPMV src/SpMV)
 file(GLOB_RECURSE SRC_CSR_SPMV_CPP ${SRC_CSR_SPMV}/*.cpp)
 add_executable(csr_spmv_scalar ${SRC_CSR_SPMV}/csr_spmv_scalar.cu ${SRC_CSR_SPMV_CPP})
+add_executable(csr_spmv_vector ${SRC_CSR_SPMV}/csr_spmv_vector.cu ${SRC_CSR_SPMV_CPP})
 
+# set output directory for GNN aggregation programs
+set_target_properties(basic_aggregation tiled_aggregation PROPERTIES RUNTIME_OUTPUT_DIRECTORY ../${PATH_EXECUTABLE}/gnn_aggregation)
+
+# set output directory for CSR SpMV programs
+set_target_properties(csr_spmv_scalar csr_spmv_vector PROPERTIES RUNTIME_OUTPUT_DIRECTORY ../${PATH_EXECUTABLE}/csr_spmv)
 
 # >>> global configuration
 set(PROFILING_TARGETS 
   basic_aggregation
   tiled_aggregation
   csr_spmv_scalar
+  csr_spmv_vector
 )
 foreach( profiling_target ${PROFILING_TARGETS} )
   target_link_libraries(${profiling_target} _operators nvToolsExt -lcublas -lcurand)
