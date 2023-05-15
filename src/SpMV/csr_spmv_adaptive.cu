@@ -87,12 +87,8 @@ int main() {
   // Launch kernel
   std::cout << "Launch Kernel: " << threads_per_CTAdim << " threads per block, " << blocks_per_GRIDdim << " blocks in the grid" << std::endl;
   nvtxRangePush("Launch kernel");
-  csr_spmv_vector_kernel<<<GRID, BLOCK>>>(numRows, d_col_idx, d_row_ptr, d_values, d_x, d_y);
-  // cudaError_t err = cudaGetLastError();
-  // if (err != cudaSuccess) {
-  //   printf("CUDA Error: %s\n", cudaGetErrorString(err));
-  //   // Possibly: exit(-1) if program cannot continue....
-  // } 
+  csr_spmv_adaptive_kernel<<<GRID, BLOCK>>>(numRows, d_col_idx, d_row_ptr, d_values, d_x, d_y);
+  //会阻塞当前的 CPU 线程，直到前面的所有 CUDA kernel 执行完成。
   cudaError_t cudaerr = cudaDeviceSynchronize();
   if (cudaerr != cudaSuccess){
     printf("kernel launch failed with error \"%s\".\n",

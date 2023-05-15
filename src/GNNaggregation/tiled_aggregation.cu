@@ -94,6 +94,12 @@ int main() {
   std::cout << "Launch Kernel: " << THREADS_PER_BLOCK  << " threads per block(one dimension), " << BLOCKS_NUM << " blocks in the grid(one dimension)" << std::endl;
   nvtxRangePush("start kernel");
   tiledMatrixMul<<<grip, block, shared_memory_size>>>(d_matrix_W, d_matrix_H, d_vector_b, THREADS_PER_BLOCK, d_matrix_HK, N);
+  cudaError_t cudaerr = cudaDeviceSynchronize();
+  if (cudaerr != cudaSuccess){
+    printf("kernel launch failed with error \"%s\".\n",
+    cudaGetErrorString(cudaerr));
+    exit(-1);
+  }  
   nvtxRangePop();
 
   // Copy back to the host

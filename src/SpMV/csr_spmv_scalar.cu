@@ -29,9 +29,9 @@ void verifySpMVresult(
 
 int main() {
   // initial constants
-  constexpr uint64_t numRows = 1<<20; 
-  constexpr uint64_t sizeRow = 1<<10;
-  const double density = 0.5;
+  constexpr uint64_t numRows = 20; 
+  constexpr uint64_t sizeRow = 10;
+  const double density = 0.1;
   
   size_t size_x = sizeRow * sizeof(float);
   size_t size_y = numRows * sizeof(float);
@@ -48,7 +48,7 @@ int main() {
   
 
   // Initialize csr and vector_x
-  nvtxRangePush("initialize source csr with random numbers");
+  nvtxRangePush("initialize csr with random numbers");
   generateSparseMatrix(numRows, sizeRow, density, values, col_idx, row_ptr);
   for (int i=0; i<sizeRow; i++){
     h_x.push_back(static_cast<float>(rand() % 100));
@@ -56,7 +56,7 @@ int main() {
   nvtxRangePop();
 
   // Allocate device memory
-  nvtxRangePush("allocate device memory for three matrices and one vector");
+  nvtxRangePush("allocate device memory");
   float *d_values, *d_x, *d_y;
   uint64_t *d_col_idx, *d_row_ptr;
   cudaMalloc(&d_values, sizeof(float)*values.size());
@@ -86,13 +86,19 @@ int main() {
 
   // Launch kernel
   std::cout << "Launch Kernel: " << threads_per_CTAdim << " threads per block, " << blocks_per_GRIDdim << " blocks in the grid" << std::endl;
-  nvtxRangePush("start kernel");
+  nvtxRangePush("Launch kernel");
   csr_spmv_scalar_kernel<<<GRID, BLOCK>>>(numRows, d_col_idx, d_row_ptr, d_values, d_x, d_y);
   // cudaError_t err = cudaGetLastError();
   // if (err != cudaSuccess) {
   //   printf("CUDA Error: %s\n", cudaGetErrorString(err));
   //   // Possibly: exit(-1) if program cannot continue....
   // } 
+  cudaError_t cudaerr = cudaDeviceSynchronize();
+  if (cudaerr != cudaSuccess){
+    printf("kernel launch failed with error \"%s\".\n",
+    cudaGetErrorString(cudaerr));
+    exit(-1);
+  }  
   nvtxRangePop();
 
   // Copy back to the host

@@ -1,5 +1,6 @@
 #include <GNNaggregation.cuh>
 #include <cassert>
+#include <iostream>
 
 __global__ void basicMatrixMul(
     const int *a, 
@@ -37,7 +38,7 @@ __global__ void tiledMatrixMul(
   int* tile_W = tile;
   int* tile_H = tile+tile_size*tile_size;
   int tmp = 0;
-
+  printf("I'm in kernel");
   // Sweep tile across matrix
   for (int i = 0; i < N; i += blockDim.x) {
     
