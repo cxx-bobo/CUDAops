@@ -5,13 +5,6 @@
 #define FULL_WARP_MASK 0xffffffff
 #define NNZ_PER_WG 64u  ///u表示无符号整数
 
-//sum reduction
-__device__ float warp_reduce (float val)
-{
-  for (int offset = warpSize / 2; offset > 0; offset /= 2)
-     val += __shfl_down_sync (FULL_WARP_MASK,val,offset);
-  return val;
-}
 
 //csr_spmv_scalar_kernel
 __global__ void csr_spmv_scalar_kernel (
@@ -23,7 +16,6 @@ __global__ void csr_spmv_scalar_kernel (
     float *y)
 {
     uint64_t row = blockIdx.x * blockDim.x + threadIdx.x;
-    printf("I'm in kernel");
     if (row < n_rows)
     {
         const uint64_t row_start = row_ptr[row];
@@ -33,12 +25,19 @@ __global__ void csr_spmv_scalar_kernel (
             sum += data[element] * x[col_ids[element]];
         }
         y[row] = sum;
-        
     }
 }
 
 
 //csr_spmv_vector_kernel
+  ///sum reduction
+__device__ float warp_reduce (float val)
+{
+  for (int offset = warpSize / 2; offset > 0; offset /= 2)
+     val += __shfl_down_sync (FULL_WARP_MASK,val,offset);
+  return val;
+}
+
 __global__ void csr_spmv_vector_kernel (
   const uint64_t n_rows,
   const uint64_t *col_ids,
@@ -52,7 +51,6 @@ __global__ void csr_spmv_vector_kernel (
   const uint64_t lane = thread_id % 32;
   const uint64_t row = warp_id; ///< One warp per row
   float sum =0;
-  printf("I'm in kernel");
   if (row < n_rows)
  {
    const uint64_t row_start = row_ptr[row];

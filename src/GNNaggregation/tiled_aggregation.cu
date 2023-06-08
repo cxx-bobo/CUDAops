@@ -84,7 +84,7 @@ int main() {
 
   // Use dim3 structs for block  and grid dimensions
   dim3 block(THREADS_PER_BLOCK , THREADS_PER_BLOCK);
-  dim3 grip(BLOCKS_NUM, BLOCKS_NUM);
+  dim3 grid(BLOCKS_NUM, BLOCKS_NUM);
 
   // obtain shared memory size for each thread block(tile_A+tile_B,所以乘2)
   int shared_memory_size = 2*THREADS_PER_BLOCK *THREADS_PER_BLOCK *sizeof(int);
@@ -93,7 +93,7 @@ int main() {
   std::cout << block.x <<std::endl;
   std::cout << "Launch Kernel: " << THREADS_PER_BLOCK  << " threads per block(one dimension), " << BLOCKS_NUM << " blocks in the grid(one dimension)" << std::endl;
   nvtxRangePush("start kernel");
-  tiledMatrixMul<<<grip, block, shared_memory_size>>>(d_matrix_W, d_matrix_H, d_vector_b, THREADS_PER_BLOCK, d_matrix_HK, N);
+  tiledMatrixMul<<<grid, block, shared_memory_size>>>(d_matrix_W, d_matrix_H, d_vector_b, THREADS_PER_BLOCK, d_matrix_HK, N);
   cudaError_t cudaerr = cudaDeviceSynchronize();
   if (cudaerr != cudaSuccess){
     printf("kernel launch failed with error \"%s\".\n",

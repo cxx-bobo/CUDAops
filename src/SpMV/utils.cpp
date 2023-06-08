@@ -2,6 +2,7 @@
 #include <vector>
 #include <cstdlib>
 #include <cassert>
+#include <cmath>
 
 // 生成稀疏矩阵
 void generateSparseMatrix(
@@ -29,7 +30,7 @@ void generateSparseMatrix(
             }
         }
 
-        // 更新 rowOffsets 向量
+        // update rowOffsets 向量
         rowOffsets.push_back(rowOffsets.back() + numNonZerosInRow);
     }
     // //print csr
@@ -71,6 +72,30 @@ void verifySpMVresult(
         for (uint64_t j = row_start; j < row_end; j++) {    
             sum += values[j] * x[col_idx[j]];
         }
-        assert(y[i] - sum <= 0.000001);
+        assert(fabs(y[i] - sum) <= 0.000001);
     }
+    // //打印CPU和GPU计算结果 检查
+    // std::vector<float> sum;
+    // for (uint64_t i = 0; i < numRows; i++) {
+    //     const uint64_t row_start =row_ptr[i]; 
+    //     const uint64_t row_end =row_ptr[i+1]; 
+    //     float tmp = 0;
+    //     // For every column...
+    //     for (uint64_t j = row_start; j < row_end; j++) {    
+    //         tmp += values[j] * x[col_idx[j]];
+    //     }
+    //     sum.push_back(tmp);
+    // }
+    // std::cout << "\nVECTOR x: " << std::endl;
+    // for (float &val : x) {
+    // std::cout << val << " ";
+    // }
+    // std::cout << "\nGPU RESULT: " << std::endl;
+    // for (int i = 0; i < numRows; i++) {
+    // std::cout << y[i] << " ";
+    // }
+    // std::cout << "\nCPU RESULT: " << std::endl;
+    // for (float &val : sum) {
+    // std::cout << val << " ";
+    // }
 }
