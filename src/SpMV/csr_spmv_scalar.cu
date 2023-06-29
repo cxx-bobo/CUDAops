@@ -45,8 +45,6 @@ int main() {
   std::vector<float> h_y;
   h_y.reserve(numRows);
   
-  
-
   // Initialize csr and vector_x
   nvtxRangePush("initialize csr with random numbers");
   generateSparseMatrix(numRows, sizeRow, density, values, col_idx, row_ptr);
@@ -77,12 +75,8 @@ int main() {
   // Threads per CTA dimension
   int threads_per_CTAdim = 128;
 
-  // Blocks per grid dimension (assumes THREADS divides N evenly)
+  // Blocks per grid dimension 
   int blocks_per_GRIDdim = ( numRows + threads_per_CTAdim -1 ) / threads_per_CTAdim;
-
-  // Use dim3 structs for block  and grid dimensions
-  // dim3 blocks(threads_per_CTAdim, threads_per_CTAdim);
-  // dim3 grid(blocks_per_GRIDdim, blocks_per_GRIDdim);
 
   // Launch kernel
   std::cout << "Launch Kernel: " << threads_per_CTAdim << " threads per block, " << blocks_per_GRIDdim << " blocks in the grid" << std::endl;
@@ -93,12 +87,6 @@ int main() {
     printf("CUDA Error: %s\n", cudaGetErrorString(err));
     // Possibly: exit(-1) if program cannot continue....
   } 
-  // cudaError_t cudaerr = cudaDeviceSynchronize();
-  // if (cudaerr != cudaSuccess){
-  //   printf("kernel launch failed with error \"%s\".\n",
-  //   cudaGetErrorString(cudaerr));
-  //   exit(-1);
-  // }  
   nvtxRangePop();
 
   // Copy back to the host

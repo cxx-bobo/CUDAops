@@ -3,10 +3,8 @@
 #include <iostream>
 
 #define FULL_WARP_MASK 0xffffffff
-#define NNZ_PER_WG 64u  ///u表示无符号整数
 
-
-//csr_spmv_scalar_kernel
+//csr_spmv_scalar kernel
 __global__ void csr_spmv_scalar_kernel (
     const uint64_t n_rows,
     const uint64_t *col_ids,
@@ -18,10 +16,10 @@ __global__ void csr_spmv_scalar_kernel (
     uint64_t row = blockIdx.x * blockDim.x + threadIdx.x;
     if (row < n_rows)
     {
-        const uint64_t row_start = row_ptr[row];
-        const uint64_t row_end = row_ptr[row + 1];
+        const uint64_t data_start = row_ptr[row];
+        const uint64_t data_end = row_ptr[row + 1];
         float sum = 0;
-        for (uint64_t element = row_start; element< row_end; element++){
+        for (uint64_t element = data_start; element< data_end; element++){
             sum += data[element] * x[col_ids[element]];
         }
         y[row] = sum;
@@ -29,17 +27,17 @@ __global__ void csr_spmv_scalar_kernel (
 }
 
 
-//csr_spmv_vector_kernel
-  ///sum reduction
+
+//使用warp-level primitives进行并行规约
 __device__ float warp_reduce (float val)
 {
   for (int offset = warpSize / 2; offset > 0; offset /= 2)
      val += __shfl_down_sync (FULL_WARP_MASK,val,offset);
   return val;
 }
-
+//csr_spmv_vector kernel
 __global__ void csr_spmv_vector_kernel (
-  const uint64_t n_rows,
+  const uint64_t num_rows,
   const uint64_t *col_ids,
   const uint64_t *row_ptr,
   const float *data,
@@ -48,75 +46,77 @@ __global__ void csr_spmv_vector_kernel (
 {
   const uint64_t thread_id = blockIdx.x * blockDim.x + threadIdx.x;
   const uint64_t warp_id = thread_id / 32;
-  const uint64_t lane = thread_id % 32;
-  const uint64_t row = warp_id; ///< One warp per row
+  const uint64_t lane = thread_id % 32; //当前thread在一个warp里的索引
+  const uint64_t row = warp_id; /// One warp per row
   float sum =0;
-  if (row < n_rows)
+  if (row < num_rows)
  {
-   const uint64_t row_start = row_ptr[row];
-   const uint64_t row_end = row_ptr[row + 1];
-   for (uint64_t element = row_start + lane; element < row_end; element += 32)
+   const uint64_t data_start = row_ptr[row];
+   const uint64_t data_end = row_ptr[row + 1];
+   for (uint64_t element = data_start + lane; element < data_end; element += 32)
        sum += data[element] * x[col_ids[element]];
   }
  sum = warp_reduce (sum);
- if (lane == 0 && row < n_rows)
+ if (lane == 0 && row < num_rows)
     y[row] = sum;
 }
 
 
-//csr_spmv_adaptive_kernel
-template <typename data_type>
-__global__ void fill_vector (unsigned int n, data_type *vec, data_type value)
-{
-  unsigned int i = blockIdx.x * blockDim.x + threadIdx.x;
 
-  if (i < n)
-    vec[i] = value;
-}
-
+//计算≤n的最大2的幂次
 __device__ unsigned int prev_power_of_2 (unsigned int n)
 {
   while (n & n - 1)
     n = n & n - 1;
   return n;
 }
-
-template <typename data_type>
+//csr_spmv_adaptive kernel
 __global__ void csr_spmv_adaptive_kernel (
-    const unsigned int n_rows,
-    const unsigned int *col_ids,
-    const unsigned int *row_ptr,
-    const unsigned int *row_blocks,
-    const data_type *data,
-    const data_type *x,
-    data_type *y)
+    const uint64_t n_rows,
+    const uint64_t *col_ids,
+    const uint64_t *row_ptr,
+    const uint64_t *row_blocks,
+    const float *data,
+    const float *x,
+    float *y)
 {
-  const unsigned int block_row_begin = row_blocks[blockIdx.x];
-  const unsigned int block_row_end = row_blocks[blockIdx.x + 1];
-  const unsigned int nnz = row_ptr[block_row_end] - row_ptr[block_row_begin];
+  // printf("I'm in adaptive-kernel \n");
+  const unsigned int block_row_begin = row_blocks[blockIdx.x];  //当前block中的起始行索引
+  const unsigned int block_row_end = row_blocks[blockIdx.x + 1];  //当前block中的结束行索引
+  const unsigned int nnz = row_ptr[block_row_end] - row_ptr[block_row_begin]; //当前block中的非零元个数
 
-  __shared__ data_type cache[NNZ_PER_WG];
+  //--声明共享内存数组cache，大小为NNZ_PER_WG
+  __shared__ float cache[NNZ_PER_WG];
 
+  //if：若一个block中存的非零元超过1行，则执行CSR_Stream
   if (block_row_end - block_row_begin > 1)
   {
     /// CSR-Stream case
-    const unsigned int i = threadIdx.x;
-    const unsigned int block_data_begin = row_ptr[block_row_begin];
-    const unsigned int thread_data_begin = block_data_begin + i;
+    // printf("I'm in CSR-Stream case \n");
+    const unsigned int block_data_begin = row_ptr[block_row_begin]; //当前block中非零元素的起始索引
+    const unsigned int thread_data = block_data_begin + threadIdx.x;  //当前thread要处理的非零元索引
 
-    if (i < nnz)
-      cache[i] = data[thread_data_begin] * x[col_ids[thread_data_begin]];
+    
+    // if (threadIdx.x < nnz)
+    //每个thread处理一个非零元，并将结果保存在共享内存中
+    cache[threadIdx.x] = data[thread_data] * x[col_ids[thread_data]];
     __syncthreads ();
 
+    //计算用来进行规约的线程数量
     const unsigned int threads_for_reduction = prev_power_of_2 (blockDim.x / (block_row_end - block_row_begin));
 
+    //对当前block进行并行规约处理
+    //if:若进行规约的线程数量>1,则各行先进行一次粗规约(threads_for_reduction个线程)；
+    //   然后再各行进行细规约(threads_for_reduction个线程)；
+    //   实际threads_for_reduction = 该block中的行数
     if (threads_for_reduction > 1)
       {
         /// Reduce all non zeroes of row by multiple thread
-        const unsigned int thread_in_block = i % threads_for_reduction;
-        const unsigned int local_row = block_row_begin + i / threads_for_reduction;
-
-        data_type dot = 0.0;
+        //计算当前thread在block中的索引
+        const unsigned int thread_in_block = threadIdx.x % threads_for_reduction;
+        //计算当前thread处理的当前行索引
+        const unsigned int local_row = block_row_begin + threadIdx.x / threads_for_reduction;
+        float dot = 0.0;
 
         if (local_row < block_row_end)
           {
@@ -131,34 +131,37 @@ __global__ void csr_spmv_adaptive_kernel (
               }
           }
         __syncthreads ();
-        cache[i] = dot;
+        cache[threadIdx.x] = dot;
+        __syncthreads ();
 
         /// Now each row has threads_for_reduction values in cache
         for (int j = threads_for_reduction / 2; j > 0; j /= 2)
           {
             /// Reduce for each row
-            __syncthreads ();
+            //__syncthreads ();
 
-            const bool use_result = thread_in_block < j && i + j < NNZ_PER_WG;
-
-            if (use_result)
-              dot += cache[i + j];
-            __syncthreads ();
+            const bool use_result = thread_in_block < j && threadIdx.x + j < NNZ_PER_WG;
 
             if (use_result)
-              cache[i] = dot;
+              dot += cache[threadIdx.x + j];
+            __syncthreads ();
+
+            if (use_result)
+              cache[threadIdx.x] = dot;
           }
 
         if (thread_in_block == 0 && local_row < block_row_end)
           y[local_row] = dot;
       }
+    //如果进行规约的线程数=1，用1个thread对1行进行规约。
     else
       {
         /// Reduce all non zeroes of row by single thread
-        unsigned int local_row = block_row_begin + i;
+        //计算线程处理的当前行索引
+        unsigned int local_row = block_row_begin + threadIdx.x;
         while (local_row < block_row_end)
           {
-            data_type dot = 0.0;
+            float dot = 0.0;
 
             for (unsigned int j = row_ptr[local_row] - block_data_begin;
                  j < row_ptr[local_row + 1] - block_data_begin;
@@ -168,6 +171,7 @@ __global__ void csr_spmv_adaptive_kernel (
               }
 
             y[local_row] = dot;
+            //一个block有NNZ_PER_WG个thread，故+NNZ_PER_WG
             local_row += NNZ_PER_WG;
           }
       }
@@ -178,11 +182,12 @@ __global__ void csr_spmv_adaptive_kernel (
     const unsigned int warp_id = threadIdx.x / 32;
     const unsigned int lane = threadIdx.x % 32;
 
-    data_type dot = 0;
+    float dot = 0;
 
     if (nnz <= 64 || NNZ_PER_WG <= 32)
     {
       /// CSR-Vector case
+      // printf("I'm in CSR-Vector case \n");
       if (row < n_rows)
       {
         const unsigned int row_start = row_ptr[row];
@@ -202,6 +207,7 @@ __global__ void csr_spmv_adaptive_kernel (
     else
     {
       /// CSR-VectorL case
+      // printf("I'm in CSR-VectorL case \n");
       if (row < n_rows)
       {
         const unsigned int row_start = row_ptr[row];
@@ -235,63 +241,3 @@ __global__ void csr_spmv_adaptive_kernel (
   }
 }
 
-unsigned int fill_row_blocks (
-  bool fill,
-  unsigned int rows_count,
-  const unsigned int *row_ptr,
-  unsigned int *row_blocks
-)
-{
-  if (fill)
-    row_blocks[0] = 0;
-
-  int last_i = 0;
-  int current_wg = 1;
-  unsigned int nnz_sum = 0;
-  for (int i = 1; i <= rows_count; i++)
-  {
-    nnz_sum += row_ptr[i] - row_ptr[i - 1];
-
-    if (nnz_sum == NNZ_PER_WG)
-    {
-      last_i = i;
-
-      if (fill)
-        row_blocks[current_wg] = i;
-      current_wg++;
-      nnz_sum = 0;
-    }
-    else if (nnz_sum > NNZ_PER_WG)
-    {
-      if (i - last_i > 1)
-      {
-        if (fill)
-          row_blocks[current_wg] = i - 1;
-        current_wg++;
-        i--;
-      }
-      else
-      {
-        if (fill)
-          row_blocks[current_wg] = i;
-        current_wg++;
-      }
-
-      last_i = i;
-      nnz_sum = 0;
-    }
-    else if (i - last_i > NNZ_PER_WG)
-    {
-      last_i = i;
-      if (fill)
-        row_blocks[current_wg] = i;
-      current_wg++;
-      nnz_sum = 0;
-    }
-  }
-
-  if (fill)
-    row_blocks[current_wg] = rows_count;
-
-  return current_wg;
-}

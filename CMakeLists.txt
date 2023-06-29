@@ -33,7 +33,7 @@ target_compile_features(_operators PUBLIC cxx_std_11)
 target_include_directories(_operators PUBLIC include)
 target_compile_options(
   _operators PUBLIC 
-  $<$<COMPILE_LANGUAGE:CUDA>:-gencode arch=compute_80,code=sm_80>
+  $<$<COMPILE_LANGUAGE:CUDA>:-g -G -gencode arch=compute_80,code=sm_80>
 )
 
 # Don't do following operation!
@@ -55,12 +55,13 @@ SET(SRC_CSR_SPMV src/SpMV)
 file(GLOB_RECURSE SRC_CSR_SPMV_CPP ${SRC_CSR_SPMV}/*.cpp)
 add_executable(csr_spmv_scalar ${SRC_CSR_SPMV}/csr_spmv_scalar.cu ${SRC_CSR_SPMV_CPP})
 add_executable(csr_spmv_vector ${SRC_CSR_SPMV}/csr_spmv_vector.cu ${SRC_CSR_SPMV_CPP})
+add_executable(csr_spmv_adaptive ${SRC_CSR_SPMV}/csr_spmv_adaptive.cu ${SRC_CSR_SPMV_CPP})
 
 # set output directory for GNN aggregation programs
 set_target_properties(basic_aggregation tiled_aggregation PROPERTIES RUNTIME_OUTPUT_DIRECTORY ../${PATH_EXECUTABLE}/gnn_aggregation)
 
 # set output directory for CSR SpMV programs
-set_target_properties(csr_spmv_scalar csr_spmv_vector PROPERTIES RUNTIME_OUTPUT_DIRECTORY ../${PATH_EXECUTABLE}/csr_spmv)
+set_target_properties(csr_spmv_scalar csr_spmv_vector csr_spmv_adaptive PROPERTIES RUNTIME_OUTPUT_DIRECTORY ../${PATH_EXECUTABLE}/csr_spmv)
 
 # >>> global configuration
 set(PROFILING_TARGETS 
@@ -68,6 +69,7 @@ set(PROFILING_TARGETS
   tiled_aggregation
   csr_spmv_scalar
   csr_spmv_vector
+  csr_spmv_adaptive
 )
 foreach( profiling_target ${PROFILING_TARGETS} )
   target_link_libraries(${profiling_target} _operators nvToolsExt -lcublas -lcurand)
@@ -76,6 +78,6 @@ foreach( profiling_target ${PROFILING_TARGETS} )
   target_compile_options(
     ${profiling_target} PRIVATE 
     # 编译器前后端: arch -> IR, code -> 后端 binary (针对硬件的二进制，小版本号兼容 sm_80 -> sm_86)
-    $<$<COMPILE_LANGUAGE:CUDA>:-gencode arch=compute_80,code=sm_80>
+    $<$<COMPILE_LANGUAGE:CUDA>:-g -G -gencode arch=compute_80,code=sm_80>
   )
 endforeach( profiling_target ${PROFILING_TARGETS} )

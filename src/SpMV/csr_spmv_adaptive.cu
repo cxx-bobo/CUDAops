@@ -5,7 +5,7 @@
 #include <iostream>
 #include <vector>
 #include <spmv.cuh>
-
+#include <memory>
 #include <nvToolsExt.h>
 
 void generateSparseMatrix(
@@ -27,10 +27,17 @@ void verifySpMVresult(
     std::vector<float> &y
 );
 
+unsigned int rowAssignment(
+  const uint64_t numRows, 
+  std::vector<uint64_t> &row_ptr,
+  std::vector<uint64_t> &row_assign,
+  const uint64_t nnz_per_block
+);
+
 int main() {
-  // initial constants
-  constexpr uint64_t numRows = 20; 
-  constexpr uint64_t sizeRow = 10;
+  // Initial constants
+  constexpr uint64_t numRows = 1<<10; 
+  constexpr uint64_t sizeRow = 1<<9;
   const double density = 0.1;
   
   size_t size_x = sizeRow * sizeof(float);
@@ -44,9 +51,9 @@ int main() {
   h_x.reserve(sizeRow);
   std::vector<float> h_y;
   h_y.reserve(numRows);
+  std::vector<uint64_t> row_assign; //表示行划分情况
+  uint64_t num_blocks;  //一共需要的row_block数量
   
-  
-
   // Initialize csr and vector_x
   nvtxRangePush("initialize csr and vector with random numbers");
   generateSparseMatrix(numRows, sizeRow, density, values, col_idx, row_ptr);
@@ -55,15 +62,23 @@ int main() {
   };
   nvtxRangePop();
 
+  //Get the number of row_blocks
+  std::cout <<"before turn into rowAssignment "<<std::endl;
+  num_blocks = rowAssignment(numRows, row_ptr, row_assign, NNZ_PER_WG);
+  std::cout <<"\nnum_blocks = "<<num_blocks<<std::endl;
+  std::cout <<"row_assign.size() = "<<row_assign.size()<<std::endl;
+  // return 0;
+
   // Allocate device memory
   nvtxRangePush("allocate device memory");
   float *d_values, *d_x, *d_y;
-  uint64_t *d_col_idx, *d_row_ptr;
+  uint64_t *d_col_idx, *d_row_ptr, *d_row_assign;
   cudaMalloc(&d_values, sizeof(float)*values.size());
   cudaMalloc(&d_col_idx, sizeof(uint64_t)*col_idx.size());
   cudaMalloc(&d_row_ptr, sizeof(uint64_t)*row_ptr.size());
   cudaMalloc(&d_x, size_x);
   cudaMalloc(&d_y, size_y);
+  cudaMalloc(&d_row_assign, sizeof(uint64_t)*row_assign.size());
   nvtxRangePop();
 
   // Copy data to the device
@@ -72,22 +87,20 @@ int main() {
   cudaMemcpy(d_col_idx, col_idx.data(), sizeof(uint64_t)*col_idx.size(), cudaMemcpyHostToDevice);
   cudaMemcpy(d_row_ptr, row_ptr.data(), sizeof(uint64_t)*row_ptr.size(), cudaMemcpyHostToDevice);
   cudaMemcpy(d_x, h_x.data(), size_x, cudaMemcpyHostToDevice);
+  cudaMemcpy(d_row_assign, row_assign.data(),sizeof(uint64_t)*row_assign.size(),cudaMemcpyHostToDevice);
   nvtxRangePop();
 
   // Threads per CTA dimension
-  int threads_per_CTAdim = 1<<7;
+  int threads_per_CTAdim = NNZ_PER_WG;
 
-  // Blocks per grid dimension (assumes THREADS divides N evenly)
-  int blocks_per_GRIDdim = ( numRows + threads_per_CTAdim -1 ) / threads_per_CTAdim;
-
-  // Use dim3 structs for block  and grid dimensions
-  dim3 BLOCK(threads_per_CTAdim, threads_per_CTAdim);
-  dim3 GRID(blocks_per_GRIDdim, blocks_per_GRIDdim);
+  // Blocks per grid dimension 
+  int blocks_per_GRIDdim = num_blocks;
 
   // Launch kernel
   std::cout << "Launch Kernel: " << threads_per_CTAdim << " threads per block, " << blocks_per_GRIDdim << " blocks in the grid" << std::endl;
   nvtxRangePush("Launch kernel");
-  csr_spmv_adaptive_kernel<<<GRID, BLOCK>>>(numRows, d_col_idx, d_row_ptr, d_values, d_x, d_y);
+  csr_spmv_adaptive_kernel<<<blocks_per_GRIDdim, threads_per_CTAdim>>>(numRows, d_col_idx, d_row_ptr, d_row_assign, d_values, d_x, d_y);
+  
   //会阻塞当前的 CPU 线程，直到前面的所有 CUDA kernel 执行完成。
   cudaError_t cudaerr = cudaDeviceSynchronize();
   if (cudaerr != cudaSuccess){
@@ -116,7 +129,7 @@ int main() {
   cudaFree(d_y);
   nvtxRangePop();
 
-  std::cout << "csr_spmv_scalar COMPLETED SUCCESSFULLY\n";
+  std::cout << "\ncsr_spmv_adaptive completed successfully !\n";
 
   return 0;
 }
